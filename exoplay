@@ -1,0 +1,1545 @@
+package com.enikop.epixplay.videoplayer;
+
+import static android.view.View.GONE;
+import static android.view.View.VISIBLE;
+import static com.enikop.epixplay.utils.Constants.SUBSTITLE_SUB_FILENAME_ZIP;
+
+import android.annotation.SuppressLint;
+import android.annotation.TargetApi;
+import android.content.ActivityNotFoundException;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.graphics.PorterDuff;
+import android.graphics.drawable.Drawable;
+import android.media.AudioManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.text.TextUtils;
+import android.util.Base64;
+import android.util.Log;
+import android.util.Pair;
+import android.view.LayoutInflater;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
+import android.webkit.CookieManager;
+import android.webkit.CookieSyncManager;
+import android.webkit.JsPromptResult;
+import android.webkit.JsResult;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.ProgressBar;
+import android.widget.RelativeLayout;
+import android.widget.SeekBar;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
+
+import com.google.android.exoplayer2.C;
+import com.google.android.exoplayer2.ExoPlayer;
+import com.google.android.exoplayer2.MediaItem;
+import com.google.android.exoplayer2.PlaybackException;
+import com.google.android.exoplayer2.Player;
+import com.google.android.exoplayer2.Tracks;
+import com.google.android.exoplayer2.ext.ima.ImaAdsLoader;
+import com.google.android.exoplayer2.source.ConcatenatingMediaSource;
+import com.google.android.exoplayer2.source.DefaultMediaSourceFactory;
+import com.google.android.exoplayer2.source.MediaSource;
+import com.google.android.exoplayer2.source.MergingMediaSource;
+import com.google.android.exoplayer2.source.ProgressiveMediaSource;
+import com.google.android.exoplayer2.source.SingleSampleMediaSource;
+import com.google.android.exoplayer2.source.dash.DashMediaSource;
+import com.google.android.exoplayer2.source.dash.DefaultDashChunkSource;
+import com.google.android.exoplayer2.source.hls.HlsMediaSource;
+import com.google.android.exoplayer2.source.smoothstreaming.DefaultSsChunkSource;
+import com.google.android.exoplayer2.source.smoothstreaming.SsMediaSource;
+import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
+import com.google.android.exoplayer2.trackselection.MappingTrackSelector;
+import com.google.android.exoplayer2.ui.AspectRatioFrameLayout;
+import com.google.android.exoplayer2.ui.PlayerView;
+import com.google.android.exoplayer2.upstream.DataSource;
+import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
+import com.google.android.exoplayer2.upstream.DefaultHttpDataSource;
+import com.google.android.exoplayer2.util.MimeTypes;
+import com.google.android.exoplayer2.util.Util;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+import com.enikop.epixplay.AppConfig;
+import com.enikop.epixplay.R;
+import com.enikop.epixplay.database.ContinueWatching;
+import com.enikop.epixplay.database.continuewatching.VideoData;
+import com.enikop.epixplay.network.EndpointKeys;
+import com.enikop.epixplay.opensubtitles.ApiInterface;
+import com.enikop.epixplay.opensubtitles.DownloadFileAsync;
+import com.enikop.epixplay.opensubtitles.OpenSubsConnection;
+import com.enikop.epixplay.opensubtitles.Opensub;
+import com.enikop.epixplay.utils.Constants;
+import com.enikop.epixplay.webview.AdBlocker;
+import com.enikop.epixplay.webview.SharedUtils;
+
+import net.lingala.zip4j.ZipFile;
+
+import org.jetbrains.annotations.NotNull;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+import me.tianshili.annotationlib.NotPersonalDataTransmission;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
+
+@SuppressLint("SetTextI18n")
+public class PlayerActivity extends AppCompatActivity {
+
+    private int aspectClickCount = 0;
+    private static final int SUBTITLE_CHOOSE_INTENT = 101;
+    private android.app.AlertDialog alertDialog;
+
+    private boolean fromContinueWatching = false;
+
+    private String id;
+    private String type;
+    private String server;
+    private String season;
+    private String episode;
+    private String imdbId;
+    private String contentTitle;
+    private String serverUrl;
+
+    private ExoPlayer player;
+    private PlayerView simpleExoPlayerView;
+    private AudioManager mAudioManager;
+    private DefaultTrackSelector trackSelector;
+    private ConcatenatingMediaSource mediaSource;
+    private SeekBar volumeSeekBar, brightnessSeekBar;
+    private WebView webView;
+    private BrowserWebViewClient webViewClient;
+    private ProgressBar progressBar;
+    private RelativeLayout webPlayerHeader;
+    public View playerLayout, webView_player;
+
+    // IMA Ads
+    private ImaAdsLoader adsLoader;
+
+    private String mediaUrl;
+    private String castImageUrl;
+    private String releaseDate;
+    private String cType;
+
+    private boolean disableBackPress = false;
+    private boolean isLock = false;
+    private boolean webKilled = false;
+    private final Map<String, Boolean> mLoadedUrls = new HashMap<>();
+
+    private Button imgSubtitle;
+    private Button btnQuality;
+    private Button btnAudio;
+    private Button btnLock;
+
+    private ImageView btnSubs;
+    private ImageView unLock;
+    private ImageView imgPlayerBack;
+    private ImageView aspectRatioIv;
+    private ImageView mBackImageButton;
+    private ImageView externalBtn;
+    private ImageView webCasterApi;
+
+    private TextView fitText;
+    private TextView loadingTxt;
+    private TextView playerHeaderTxt;
+
+    private String playerType;
+
+    private boolean extractVideo = true;
+    private ArrayList<VideoListItem> videosList;
+
+    private static final String[] AD_CLASSES = {".ad", ".ads", ".adunit", ".ad-slot", ".ad-container", ".ad-label", ".ad-banner", ".advertisment", ".ad-tag", ".advertising", ".ad-placeholder", ".ad-frame", "#ads", "#ad", ".adsbox"};
+    private static final String[] POPUP_CLASSES = {".popup", ".pop-up", ".popup-wrapper", ".popup-container", ".popup-overlay", ".popup-close", ".modal"};
+
+    public static final String MOVIE_SOURCE1 = new String(Base64.decode(Constants.VIDEO_SOURCE1, Base64.DEFAULT));
+    public static final String MOVIE_SOURCE2 = new String(Base64.decode(Constants.VIDEO_SOURCE2, Base64.DEFAULT));
+    public static final String MOVIE_SOURCE3 = new String(Base64.decode(Constants.VIDEO_SOURCE3, Base64.DEFAULT));
+    public static final String MOVIE_SOURCE4 = new String(Base64.decode(Constants.VIDEO_SOURCE4, Base64.DEFAULT));
+    public static final String MOVIE_SOURCE5 = new String(Base64.decode(Constants.VIDEO_SOURCE5, Base64.DEFAULT));
+    public static final String MOVIE_SOURCE6 = new String(Base64.decode(Constants.VIDEO_SOURCE6, Base64.DEFAULT));
+    public static final String MOVIE_SOURCE7 = new String(Base64.decode(Constants.VIDEO_SOURCE7, Base64.DEFAULT));
+    public static final String MOVIE_SOURCE8 = new String(Base64.decode(Constants.VIDEO_SOURCE8, Base64.DEFAULT));
+    public static final String MOVIE_SOURCE9 = new String(Base64.decode(Constants.VIDEO_SOURCE9, Base64.DEFAULT));
+    public static final String MOVIE_SOURCE10 = new String(Base64.decode(Constants.VIDEO_SOURCE10, Base64.DEFAULT));
+    public static final String MOVIE_SOURCE11 = new String(Base64.decode(Constants.VIDEO_SOURCE11, Base64.DEFAULT));
+
+    public static final String TV_SOURCE1 = new String(Base64.decode(Constants.TVVIDEO_SOURCE1, Base64.DEFAULT));
+    public static final String TV_SOURCE2 = new String(Base64.decode(Constants.TVVIDEO_SOURCE2, Base64.DEFAULT));
+    public static final String TV_SOURCE3 = new String(Base64.decode(Constants.TVVIDEO_SOURCE3, Base64.DEFAULT));
+    public static final String TV_SOURCE4 = new String(Base64.decode(Constants.TVVIDEO_SOURCE4, Base64.DEFAULT));
+    public static final String TV_SOURCE5 = new String(Base64.decode(Constants.TVVIDEO_SOURCE5, Base64.DEFAULT));
+    public static final String TV_SOURCE6 = new String(Base64.decode(Constants.TVVIDEO_SOURCE6, Base64.DEFAULT));
+    public static final String TV_SOURCE7 = new String(Base64.decode(Constants.TVVIDEO_SOURCE7, Base64.DEFAULT));
+    public static final String TV_SOURCE8 = new String(Base64.decode(Constants.TVVIDEO_SOURCE8, Base64.DEFAULT));
+    public static final String TV_SOURCE9 = new String(Base64.decode(Constants.TVVIDEO_SOURCE9, Base64.DEFAULT));
+    public static final String TV_SOURCE10 = new String(Base64.decode(Constants.TVVIDEO_SOURCE10, Base64.DEFAULT));
+
+    private static final class VideoListItem {
+        public final String uri;
+        public String title;
+        public final String mimeType;
+        public final String referer;
+
+        public VideoListItem(String uri, String title, String mimeType, String referer) {
+            this.uri = uri;
+            this.title = title;
+            this.mimeType = mimeType;
+            this.referer = referer;
+        }
+
+        @NonNull
+        @Override
+        public String toString() {
+            return ((title != null) && (title.length() > 0)) ? title : uri;
+        }
+
+        public boolean equal(String that_uri) {
+            return (this.uri.equals(that_uri));
+        }
+
+        // helpers
+        public static VideoListItem find(ArrayList<VideoListItem> items, String uri) {
+            for (int i = 0; i < items.size(); i++) {
+                VideoListItem nextItem = items.get(i);
+                if (nextItem.equal(uri)) return nextItem;
+            }
+            return null;
+        }
+
+        public static boolean contains(ArrayList<VideoListItem> items, String uri) {
+            VideoListItem matchingItem = find(items, uri);
+            return (matchingItem != null);
+        }
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_player);
+
+        id = getIntent().getStringExtra(EndpointKeys.VIDEO_ID);
+        type = getIntent().getStringExtra(EndpointKeys.VIDEO_TYPE);
+        server = getIntent().getStringExtra(EndpointKeys.VIDEO_SERVER);
+        season = getIntent().getStringExtra(EndpointKeys.VIDEO_SEASON_NO);
+        episode = getIntent().getStringExtra(EndpointKeys.VIDEO_EPISODE_NO);
+        imdbId = getIntent().getStringExtra(EndpointKeys.VIDEO_IMDB_ID);
+        contentTitle = getIntent().getStringExtra(EndpointKeys.VIDEO_TITLE);
+        castImageUrl = getIntent().getStringExtra(EndpointKeys.VIDEO_POSTER);
+        serverUrl = getIntent().getStringExtra(EndpointKeys.VIDEO_URL);
+        releaseDate = getIntent().getStringExtra(EndpointKeys.VIDEO_DATE);
+        cType = getIntent().getStringExtra(EndpointKeys.VIDEO_C_TYPE);
+        playerType = getIntent().getStringExtra("player");
+
+        Log.d("IntentData", " " + id + " " + imdbId + " " + server + " " + season + " " + episode);
+        Log.d("IntentData", " " + cType + " " + releaseDate + " " + contentTitle + " " + castImageUrl);
+
+        if (!type.equalsIgnoreCase("livetv")) {
+            ContinueWatching.addRecent(this, id, imdbId, castImageUrl, contentTitle, releaseDate, cType, season, episode);
+        }
+        videosList = new ArrayList<>();
+
+        fromContinueWatching = getIntent().getBooleanExtra(EndpointKeys.FROM_CONTINUE_WATCHING, false);
+
+        setPlayerFullScreen();
+        initComponent();
+
+        if (fromContinueWatching) {
+            continueWatchingRecent();
+        } else {
+            initWebPlayer();
+            initPlayer();
+        }
+
+    }
+
+    private void initComponent() {
+
+        // Create an AdsLoader.
+        adsLoader = new ImaAdsLoader.Builder(this).build();
+
+        simpleExoPlayerView = findViewById(R.id.video_view);
+        progressBar = findViewById(R.id.playerProgressBar);
+        imgPlayerBack = findViewById(R.id.img_player_back);
+        volumeSeekBar = findViewById(R.id.volume_Seekbar);
+        brightnessSeekBar = findViewById(R.id.brightness_Seekbar);
+        btnQuality = findViewById(R.id.img_quality);
+        btnAudio = findViewById(R.id.img_audio);
+        btnSubs = findViewById(R.id.img_subs);
+        btnLock = findViewById(R.id.img_lock);
+        unLock = findViewById(R.id.img_unlock);
+        aspectRatioIv = findViewById(R.id.aspect_ratio_iv);
+        fitText = findViewById(R.id.fitText);
+        imgSubtitle = findViewById(R.id.img_subtitle);
+        playerLayout = findViewById(R.id.player_layout);
+        webView_player = findViewById(R.id.webView_player);
+        loadingTxt = findViewById(R.id.loadingText);
+        playerHeaderTxt = findViewById(R.id.text_name_header);
+
+        webView = findViewById(R.id.webView);
+        mBackImageButton = findViewById(R.id.img_web_back);
+        ImageView mZoomBtn = findViewById(R.id.zoomBtn);
+        externalBtn = findViewById(R.id.externalBtn);
+        webPlayerHeader = findViewById(R.id.webPlayerHeader);
+        webCasterApi = findViewById(R.id.webCaster);
+
+        progressBar.setVisibility(VISIBLE);
+        webView_player.setVisibility(VISIBLE);
+
+        webViewClient = new BrowserWebViewClient();
+        webView.setWebViewClient(webViewClient);
+        MyWebChromeClient myWebChromeClient = new MyWebChromeClient();
+        webView.setWebChromeClient(myWebChromeClient);
+
+        webView.setBackgroundColor(Color.TRANSPARENT);
+        webView.setFocusableInTouchMode(false);
+        webView.setFocusable(false);
+
+        mBackImageButton.setOnClickListener(view -> onBackPressed());
+
+        if (AppConfig.ENABLE_WEBCASTER_SUPPORT) {
+            externalBtn.setVisibility(VISIBLE);
+        } else {
+            externalBtn.setVisibility(View.GONE);
+        }
+
+        externalBtn.setOnClickListener(view -> {
+
+            Map<String, String> tvShowServers = new HashMap<>();
+            tvShowServers.put("server1", TV_SOURCE1 + id + "&season=" + season + "&episode=" + episode);
+            tvShowServers.put("server2", TV_SOURCE2 + imdbId + "&server_name=vcu");
+            tvShowServers.put("server3", TV_SOURCE3 + id + "-" + season + "-" + episode);
+            tvShowServers.put("server4", TV_SOURCE4 + id + season + "-" + episode);
+            tvShowServers.put("server5", TV_SOURCE5 + imdbId + "&season=" + season + "&episode=" + episode);
+            tvShowServers.put("server6", TV_SOURCE6 + id + "&season=" + season + "&episode=" + episode);
+            tvShowServers.put("server7", TV_SOURCE7 + id + "/" + season + "/" + episode);
+            tvShowServers.put("server8", TV_SOURCE8 + id + "&s=" + season + "&e=" + episode);
+            tvShowServers.put("server9", TV_SOURCE9 + id + "-" + season + "-" + episode);
+            tvShowServers.put("server10", TV_SOURCE10 + id);
+
+            Map<String, String> movieServers = new HashMap<>();
+            movieServers.put("server1", MOVIE_SOURCE7 + id);
+            movieServers.put("server2", MOVIE_SOURCE2 + imdbId);
+            movieServers.put("server3", MOVIE_SOURCE3 + imdbId + "&server_name=vcu");
+            movieServers.put("server4", MOVIE_SOURCE4 + id);
+            movieServers.put("server5", MOVIE_SOURCE5 + id);
+            movieServers.put("server6", MOVIE_SOURCE6 + imdbId);
+            movieServers.put("server7", MOVIE_SOURCE1 + id);
+            movieServers.put("server8", MOVIE_SOURCE8 + id);
+            movieServers.put("server9", MOVIE_SOURCE9 + id);
+            movieServers.put("server10", MOVIE_SOURCE10 + id);
+            movieServers.put("server11", MOVIE_SOURCE11 + id);
+
+            if (type.equalsIgnoreCase(EndpointKeys.TYPE_TVSHOW) && tvShowServers.containsKey(server)) {
+                loadStream(tvShowServers.get(server), true);
+            } else if (type.equalsIgnoreCase(EndpointKeys.TYPE_MOVIE) && movieServers.containsKey(server)) {
+                loadStream(movieServers.get(server), true);
+            } else {
+                loadStream(serverUrl, true);
+            }
+
+        });
+
+        mZoomBtn.setOnClickListener(view -> {
+            aspectClickCount++;
+            if (aspectClickCount == 1) {
+                // Single click
+                webView.zoomIn();
+                Toast.makeText(this, "Fill", Toast.LENGTH_SHORT).show();
+            } else if (aspectClickCount == 2) {
+                // Double click
+                webView.zoomIn();
+                Toast.makeText(this, "Zoom", Toast.LENGTH_SHORT).show();
+            } else if (aspectClickCount == 3) {
+                // Triple Click
+                webView.zoomOut();
+                Toast.makeText(this, "Fill", Toast.LENGTH_SHORT).show();
+            } else if (aspectClickCount == 4) {
+                // Fourth Click
+                aspectClickCount = 0;
+                webView.zoomOut();
+                Toast.makeText(this, "Normal", Toast.LENGTH_SHORT).show();
+            }
+
+        });
+
+        mAudioManager = (AudioManager) getApplicationContext().getSystemService(Context.AUDIO_SERVICE);
+        if (mAudioManager != null) {
+            volumeSeekBar.setMax(mAudioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+            int currentVolumn = mAudioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+            volumeSeekBar.setProgress(currentVolumn);
+        }
+
+        volumeSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int i, boolean b) {
+                if (b) {
+                    mAudioManager.setStreamVolume(AudioManager.STREAM_MUSIC, i, AudioManager.ADJUST_SAME);
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+
+            }
+        });
+
+        brightnessSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int i, boolean b) {
+                if (b) {
+                    float BackLightValue = (float) i / 100;
+                    WindowManager.LayoutParams layoutParams = getWindow().getAttributes();
+                    layoutParams.screenBrightness = BackLightValue;
+                    getWindow().setAttributes(layoutParams);
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+
+            }
+        });
+
+        imgPlayerBack.setOnClickListener(v -> {
+            releasePlayer();
+            super.onBackPressed();
+        });
+
+        aspectRatioIv.setOnClickListener(view -> {
+            aspectClickCount++;
+
+            if (aspectClickCount == 1) {
+                // Single click
+                simpleExoPlayerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FILL);
+                fitText.setText("FILL");
+            } else if (aspectClickCount == 2) {
+                // Double click
+                simpleExoPlayerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+                fitText.setText("ZOOM");
+            } else if (aspectClickCount == 3) {
+                // Triple Click
+                simpleExoPlayerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+                fitText.setText("FIT");
+            } else if (aspectClickCount == 4) {
+                // Fourth Click
+                simpleExoPlayerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT);
+                fitText.setText("FIXED HEIGHT");
+            } else if (aspectClickCount == 5) {
+                // Fifth Click
+                aspectClickCount = 0;
+                simpleExoPlayerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH);
+                fitText.setText("FIXED WIDTH");
+            }
+
+        });
+
+        btnQuality.setOnClickListener(v -> {
+            MappingTrackSelector.MappedTrackInfo mappedTrackInfo;
+            if (trackSelector != null) {
+                try {
+                    mappedTrackInfo = trackSelector.getCurrentMappedTrackInfo();
+                    if (mappedTrackInfo != null) {
+                        int rendererIndex = 0; // renderer for video
+                        int rendererType = mappedTrackInfo.getRendererType(rendererIndex);
+                        boolean allowAdaptiveSelections =
+                                rendererType == C.TRACK_TYPE_VIDEO
+                                        || (rendererType == C.TRACK_TYPE_AUDIO
+                                        && mappedTrackInfo.getTypeSupport(C.TRACK_TYPE_VIDEO)
+                                        == MappingTrackSelector.MappedTrackInfo.RENDERER_SUPPORT_NO_TRACKS);
+                        Pair<AlertDialog, MyVideoTrackSelectionView> dialogPair =
+                                MyVideoTrackSelectionView.getDialog(PlayerActivity.this, trackSelector,
+                                        rendererIndex,
+                                        Objects.requireNonNull(player.getVideoFormat()).bitrate, getResources().getString(R.string.exo_track_selection_title_video1));
+                        dialogPair.second.setShowDisableOption(false);
+                        dialogPair.second.setAllowAdaptiveSelections(allowAdaptiveSelections);
+                        dialogPair.second.animate();
+                        dialogPair.first.show();
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+
+        btnAudio.setOnClickListener(v -> {
+            MappingTrackSelector.MappedTrackInfo mappedTrackInfo;
+            if (trackSelector != null) {
+                try {
+                    mappedTrackInfo = trackSelector.getCurrentMappedTrackInfo();
+                    if (mappedTrackInfo != null) {
+                        int rendererIndex = 1; // renderer for audio
+                        int rendererType = mappedTrackInfo.getRendererType(rendererIndex);
+                        boolean allowAdaptiveSelections =
+                                rendererType == C.TRACK_TYPE_VIDEO
+                                        || (rendererType == C.TRACK_TYPE_AUDIO
+                                        && mappedTrackInfo.getTypeSupport(C.TRACK_TYPE_VIDEO)
+                                        == MappingTrackSelector.MappedTrackInfo.RENDERER_SUPPORT_NO_TRACKS);
+                        Pair<AlertDialog, MyTrackSelectionView> dialogPair =
+                                MyTrackSelectionView.getDialog(PlayerActivity.this, trackSelector,
+                                        rendererIndex, getResources().getString(R.string.exo_track_selection_title_audio1));
+                        dialogPair.second.setShowDisableOption(false);
+                        dialogPair.second.setAllowAdaptiveSelections(allowAdaptiveSelections);
+                        dialogPair.second.animate();
+                        dialogPair.first.show();
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+
+        btnSubs.setOnClickListener(v -> {
+            MappingTrackSelector.MappedTrackInfo mappedTrackInfo;
+            if (trackSelector != null) {
+                try {
+                    mappedTrackInfo = trackSelector.getCurrentMappedTrackInfo();
+                    if (mappedTrackInfo != null) {
+                        int rendererIndex = 2; // renderer for subtitles
+                        int rendererType = mappedTrackInfo.getRendererType(rendererIndex);
+                        boolean allowAdaptiveSelections =
+                                rendererType == C.TRACK_TYPE_VIDEO
+                                        || (rendererType == C.TRACK_TYPE_AUDIO
+                                        && mappedTrackInfo.getTypeSupport(C.TRACK_TYPE_VIDEO)
+                                        == MappingTrackSelector.MappedTrackInfo.RENDERER_SUPPORT_NO_TRACKS);
+                        Pair<AlertDialog, MyTrackSelectionView> dialogPair =
+                                MyTrackSelectionView.getDialog(PlayerActivity.this, trackSelector,
+                                        rendererIndex, getResources().getString(R.string.player_subtitles_btn));
+                        dialogPair.second.setShowDisableOption(true);
+                        dialogPair.second.setAllowAdaptiveSelections(allowAdaptiveSelections);
+                        dialogPair.second.animate();
+                        dialogPair.first.show();
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+
+        btnLock.setOnClickListener(v -> updateLockMode(true));
+
+        unLock.setOnClickListener(v -> updateLockMode(false));
+
+        imgSubtitle.setOnClickListener(v -> {
+            player.setPlayWhenReady(false);
+            ViewGroup viewGroup = findViewById(android.R.id.content);
+            View dialogView = LayoutInflater.from(PlayerActivity.this).inflate(R.layout.custom_dialog_subtitle, viewGroup, false);
+            ImageView cancel = dialogView.findViewById(R.id.cancel);
+
+            Button selectSub = dialogView.findViewById(R.id.selectSub);
+            Button openSubs = dialogView.findViewById(R.id.openSubs);
+
+            android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(PlayerActivity.this, R.style.MyAlertDialogTheme);
+            builder.setView(dialogView);
+
+            alertDialog = builder.create();
+            alertDialog.show();
+
+            selectSub.setOnClickListener(v13 -> {
+                alertDialog.cancel();
+
+                final Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("*/*");
+
+                intent.putExtra("android.content.extra.SHOW_ADVANCED", true);
+
+                final String[] supportedMimeTypes = {
+                        MimeTypes.APPLICATION_SUBRIP,
+                        MimeTypes.TEXT_SSA,
+                        MimeTypes.TEXT_VTT,
+                        MimeTypes.APPLICATION_TTML,
+                        "text/*",
+                        "application/octet-stream"
+                };
+                intent.putExtra(Intent.EXTRA_MIME_TYPES, supportedMimeTypes);
+                try {
+                    startActivityForResult(intent, SUBTITLE_CHOOSE_INTENT);
+                } catch (ActivityNotFoundException e) {
+                    Log.e("tag", "No activity can handle picking a file. Showing alternatives.");
+                }
+
+            });
+
+            if (imdbId != null) {
+                openSubs.setVisibility(VISIBLE);
+            } else {
+                openSubs.setVisibility(View.GONE);
+            }
+
+            openSubs.setOnClickListener(v1 -> {
+                alertDialog.cancel();
+                onOpenSubsLoad(imdbId);
+            });
+
+            cancel.setOnClickListener(v2 -> {
+                player.setPlayWhenReady(true);
+                alertDialog.cancel();
+            });
+        });
+
+        webCasterApi.setOnClickListener(v -> playInWebCaster(mediaUrl));
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private void initWebPlayer() {
+        if (player != null) {
+            releasePlayer();
+        }
+
+        progressBar.setVisibility(VISIBLE);
+
+        WebSettings webSettings = webView.getSettings();
+        webSettings.setDefaultTextEncodingName("UTF-8");
+        webSettings.setJavaScriptEnabled(true);
+        webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
+        webSettings.setSupportMultipleWindows(true);
+        webSettings.setDomStorageEnabled(true);
+        webSettings.setMediaPlaybackRequiresUserGesture(false);
+        webSettings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36");
+        webSettings.setSupportZoom(true);
+        webSettings.setBuiltInZoomControls(true);
+        webSettings.setDisplayZoomControls(false);
+        webSettings.setLoadWithOverviewMode(true);
+        webSettings.setUseWideViewPort(false);
+        webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        webView.setInitialScale(0);
+        webView.setHorizontalScrollBarEnabled(false);
+        webView.setVerticalScrollBarEnabled(false);
+        webView.getSettings().setCacheMode(WebSettings.LOAD_NO_CACHE);
+        webSettings.setAllowUniversalAccessFromFileURLs(true);
+
+        webView.setOnTouchListener((v, event) -> {
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                case MotionEvent.ACTION_MOVE:
+                case MotionEvent.ACTION_UP:
+                    // Hide the status bar and bottom navigation bar when touched on screen
+                    View decorView = getWindow().getDecorView();
+                    int uiOptions = View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_FULLSCREEN;
+                    decorView.setSystemUiVisibility(uiOptions);
+                    break;
+            }
+            return false;
+        });
+
+        if (!fromContinueWatching) {
+
+            Map<String, String> tvShowServers = new HashMap<>();
+            tvShowServers.put("server1", TV_SOURCE1 + id + "&season=" + season + "&episode=" + episode);
+            tvShowServers.put("server2", TV_SOURCE2 + imdbId + "&server_name=vcu");
+            tvShowServers.put("server3", TV_SOURCE3 + id + "-" + season + "-" + episode);
+            tvShowServers.put("server4", TV_SOURCE4 + id + season + "-" + episode);
+            tvShowServers.put("server5", TV_SOURCE5 + imdbId + "&season=" + season + "&episode=" + episode);
+            tvShowServers.put("server6", TV_SOURCE6 + id + "&season=" + season + "&episode=" + episode);
+            tvShowServers.put("server7", TV_SOURCE7 + id + "/" + season + "/" + episode);
+            tvShowServers.put("server8", TV_SOURCE8 + id + "&s=" + season + "&e=" + episode);
+            tvShowServers.put("server9", TV_SOURCE9 + id + "-" + season + "-" + episode);
+            tvShowServers.put("server10", TV_SOURCE10 + id);
+
+            Map<String, String> movieServers = new HashMap<>();
+            movieServers.put("server1", MOVIE_SOURCE7 + id);
+            movieServers.put("server2", MOVIE_SOURCE2 + imdbId);
+            movieServers.put("server3", MOVIE_SOURCE3 + imdbId + "&server_name=vcu");
+            movieServers.put("server4", MOVIE_SOURCE4 + id);
+            movieServers.put("server5", MOVIE_SOURCE5 + id);
+            movieServers.put("server6", MOVIE_SOURCE6 + imdbId);
+            movieServers.put("server7", MOVIE_SOURCE1 + id);
+            movieServers.put("server8", MOVIE_SOURCE8 + id);
+            movieServers.put("server9", MOVIE_SOURCE9 + id);
+            movieServers.put("server10", MOVIE_SOURCE10 + id);
+            movieServers.put("server11", MOVIE_SOURCE11 + id);
+
+            if (type.equalsIgnoreCase(EndpointKeys.TYPE_TVSHOW) && tvShowServers.containsKey(server)) {
+                loadStream(tvShowServers.get(server), false);
+            } else if (type.equalsIgnoreCase(EndpointKeys.TYPE_MOVIE) && movieServers.containsKey(server)) {
+                loadStream(movieServers.get(server), false);
+            } else {
+                loadStream(serverUrl, false);
+            }
+
+        }
+
+    }
+
+    private void continueWatchingRecent() {
+        VideoData videoData = ContinueWatching.getVideoData(this, id, cType, season, episode);
+
+        if (videoData != null && videoData.getDataServerType() != null) {
+
+            if (videoData.getDataServerType().equalsIgnoreCase("exoplayer")) {
+
+                initPlayer();
+                addVideoSource(videoData.getDataMediaUrl(), null, null, videoData);
+
+            } else if (videoData.getDataServerType().equalsIgnoreCase("webview")) {
+
+                initWebPlayer();
+                initPlayer();
+
+                CookieSyncManager.createInstance(this);
+                CookieManager cookieManager = CookieManager.getInstance();
+                cookieManager.setAcceptCookie(true);
+                CookieSyncManager.getInstance().startSync();
+
+                webView.loadUrl(videoData.getDataMediaUrl());
+            }
+        }
+
+    }
+
+    private void loadStream(@NotPersonalDataTransmission String finalUrl, boolean Webcaster) {
+        mediaUrl = finalUrl;
+        Log.d("IntentData", " " + finalUrl);
+        if (!type.equalsIgnoreCase("livetv")) {
+            updateContinueWatchingData(true);
+        }
+
+        if (!Webcaster) {
+            webView.loadUrl(finalUrl);
+        } else {
+            playInWebCaster(finalUrl);
+        }
+    }
+
+    private void playInWebCaster(String url) {
+        Intent shareVideo = new Intent(Intent.ACTION_VIEW);
+        shareVideo.setDataAndType(Uri.parse(url), "video/*");
+        shareVideo.setPackage("com.instantbits.cast.webvideo");
+        shareVideo.putExtra("title", getResources().getString(R.string.app_name));
+        shareVideo.putExtra("secure_uri", true);
+        try {
+            startActivity(shareVideo);
+        } catch (ActivityNotFoundException ex) {
+            new AlertDialog.Builder(PlayerActivity.this, R.style.MyAlertDialogTheme)
+                    .setTitle("Web Video Cast App")
+                    .setMessage("¡Instala la aplicación Web Video Cast desde Play Store para transmitir esta transmisión a tus dispositivos!")
+                    .setPositiveButton("Descargar", (dialog, which) -> {
+                        Intent intent = new Intent(Intent.ACTION_VIEW);
+                        String uriString = "market://details?id=com.instantbits.cast.webvideo";
+                        intent.setData(Uri.parse(uriString));
+                        startActivity(intent);
+                    })
+                    .setNegativeButton(getResources().getString(R.string.exit_dialog_cancel), (dialog, which) -> dialog.cancel()).create().show();
+        }
+    }
+
+
+    public class BrowserWebViewClient extends WebViewClient {
+
+        @Override
+        public void onPageStarted(WebView view, String url, Bitmap favicon) {
+            // TODO Auto-generated method stub
+            super.onPageStarted(view, url, favicon);
+            progressBar.setVisibility(VISIBLE);
+        }
+
+        @Override
+        public void onPageFinished(WebView view, String url) {
+            super.onPageFinished(view, url);
+            progressBar.setVisibility(View.GONE);
+            webPlayerHeader.setVisibility(VISIBLE);
+
+            // Ad blocker v2.0
+            injectJavaScriptForBlockingPopups(view);
+
+        }
+
+        @Override
+        public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+            super.onReceivedError(view, request, error);
+            progressBar.setVisibility(View.GONE);
+        }
+
+        @Override
+        public void onLoadResource(WebView view, String url) {
+            if (extractVideo) {
+                processURL(url, view);
+            }
+        }
+
+        public boolean shouldOverrideUrlLoading(WebView view, String url) {
+            if (extractVideo) {
+                processURL(url, view);
+            }
+            return false;
+        }
+
+        @Override
+        public final WebResourceResponse shouldInterceptRequest(WebView view, String url) {
+            boolean ad;
+            if (!mLoadedUrls.containsKey(url)) {
+                ad = AdBlocker.isAd(url);
+                mLoadedUrls.put(url, ad);
+            } else {
+                ad = mLoadedUrls.get(url);
+            }
+            if (extractVideo) {
+                processURL(url, view);
+            }
+
+            // Ad blocker v2.0
+            injectJavaScriptForBlockingPopups(view);
+
+            return ad ? AdBlocker.createEmptyResource() :
+                    super.shouldInterceptRequest(view, url);
+        }
+
+        @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+        @Nullable
+        @Override
+        public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+            boolean ad;
+            String url = request.getUrl().toString();
+            if (!mLoadedUrls.containsKey(url)) {
+                ad = AdBlocker.isAd(url);
+                mLoadedUrls.put(url, ad);
+            } else {
+                ad = mLoadedUrls.get(url);
+            }
+            if (extractVideo) {
+                processURL(url, view);
+            }
+
+            // Ad blocker v2.0
+            injectJavaScriptForBlockingPopups(view);
+
+            return ad ? AdBlocker.createEmptyResource() :
+                    super.shouldInterceptRequest(view, request);
+        }
+    }
+
+    private void injectJavaScriptForBlockingPopups(WebView webView) {
+        // Block popups
+        @NotPersonalDataTransmission
+        String jsBlockPopups = "javascript:(function() { " +
+                "window.open = function() { return null; };" +
+                "window.alert = function() { return null; };" +
+                "window.confirm = function() { return null; };" +
+                "window.prompt = function() { return null; };" +
+                "window.addEventListener('auxclick', function (e) { e.preventDefault(); return false; }, false);" +
+                "})()";
+        loadJavaScript(webView, jsBlockPopups);
+
+        // Remove all HTML banner ads
+        @NotPersonalDataTransmission
+        String jsRemoveBannerAds = "javascript:(function() { " +
+                "var ads = document.querySelectorAll('" + TextUtils.join(",", AD_CLASSES) + "');" +
+                "ads.forEach(function(ad) {" +
+                "ad.style.display='none';" +
+                "});" +
+                "})()";
+        loadJavaScript(webView, jsRemoveBannerAds);
+
+        // Remove all HTML pop-up ads
+        @NotPersonalDataTransmission
+        String jsRemovePopupAds = "javascript:(function() { " +
+                "var popups = document.querySelectorAll('" + TextUtils.join(",", POPUP_CLASSES) + "');" +
+                "popups.forEach(function(popup) {" +
+                "popup.style.display='none';" +
+                "});" +
+                "})()";
+        loadJavaScript(webView, jsRemovePopupAds);
+    }
+
+    private void loadJavaScript(final WebView webView, @NotPersonalDataTransmission final String jsCode) {
+        webView.post(() -> {
+            try {
+                webView.evaluateJavascript(jsCode, null);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
+    }
+
+    public static class MyWebChromeClient extends WebChromeClient {
+        @Override
+        public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
+            result.cancel();
+            return true;
+        }
+
+        @Override
+        public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
+            result.cancel();
+            return true;
+        }
+
+        @Override
+        public boolean onJsPrompt(WebView view, String url, String message, String defaultValue, JsPromptResult result) {
+            result.cancel();
+            return true;
+        }
+    }
+
+    private void processURL(String uri, WebView view) {
+        if (!server.equalsIgnoreCase("server1")) {  // https://blackvid.space/embed?tmdb= doesn't support ExoPlayer
+            String mimeType = SharedUtils.getVideoMimeType(uri);
+            if (mimeType != null) {
+                runOnUiThread(() -> {
+                    String referer = (view == null) ? null : view.getUrl();
+                    extractVideo(uri, mimeType, referer);
+                });
+            }
+        }
+    }
+
+    private void extractVideo(String uri, String mimeType, String referer) {
+        if (VideoListItem.contains(videosList, uri)) return;
+
+        VideoListItem item = new VideoListItem(uri, null, mimeType, referer);
+        videosList.add(item);
+        openVideo(item);
+    }
+
+    private void openVideo(VideoListItem item) {
+        if (item == null) return;
+
+        Gson gson = new Gson();
+        ArrayList<String> arrSources = new ArrayList<>(3);
+        arrSources.add(item.uri);
+        arrSources.add(item.mimeType);
+        arrSources.add(item.referer);
+        String jsonSources = gson.toJson(arrSources);
+        ArrayList<String> finalArrSource = gson.fromJson(jsonSources, new TypeToken<ArrayList<String>>() {}.getType());
+
+        int stringsPerVideo = 3;
+        int remainder = finalArrSource.size() % stringsPerVideo;
+        int maxIndex = (remainder == 0) ? finalArrSource.size() : (finalArrSource.size() - remainder);
+
+        for (int i = 0; i < maxIndex; i += stringsPerVideo) {
+            addVideoSource(finalArrSource.get(i), finalArrSource.get(i + 1), finalArrSource.get(i + 2), null);
+        }
+    }
+
+    private void addVideoSource(String uri, String mimeType, String referer, VideoData videoData) {
+        if (uri == null) return;
+
+        if (mimeType == null)
+            mimeType = SharedUtils.getVideoMimeType(uri);
+
+        ExoVideoSource videoSource = ExoVideoSource.createVideoSource(uri, mimeType, referer);
+        mediaSource.addMediaSource(buildMediaSource(videoSource));
+
+        webView_player.setVisibility(GONE);
+        playerLayout.setVisibility(VISIBLE);
+        loadingTxt.setVisibility(GONE);
+        progressBar.setVisibility(VISIBLE);
+
+        if (!fromContinueWatching) {
+
+            Uri adUri = Uri.parse(uri);
+
+            if (AppConfig.SHOW_VAST_ADS) {
+                Uri adTagUri = Uri.parse(AppConfig.AD_TAG_URL);
+                MediaItem.AdsConfiguration adsConfiguration =
+                        new MediaItem.AdsConfiguration.Builder(adTagUri).build();
+
+                MediaItem mediaItem =
+                        new MediaItem.Builder()
+                                .setUri(adUri)
+                                .setMimeType(getMediaMimeType(adUri))
+                                .setAdsConfiguration(adsConfiguration)
+                                .build();
+
+                // Prepare the content and ad to be played with the SimpleExoPlayer.
+                player.setMediaItem(mediaItem);
+                player.prepare();
+            } else {
+                player.prepare(mediaSource, true, false);
+            }
+
+            if (player != null) {
+                player.addListener(playerListener);
+                player.setPlayWhenReady(true);
+                if (webView != null) {
+                    webKilled = true;
+                    destroyWebView();
+                }
+            }
+
+        } else {
+
+            player.prepare(mediaSource, true, false);
+
+            if (player != null) {
+
+                player.addListener(playerListener);
+                if (videoData != null && videoData.getDataTimestamp() != null)
+                    player.seekTo(Long.parseLong(videoData.getDataTimestamp()));
+                player.setPlayWhenReady(true);
+                if (webView != null) {
+                    webKilled = true;
+                    destroyWebView();
+                }
+
+            }
+
+        }
+
+    }
+
+    private void initPlayer() {
+        // Show progress bar
+        progressBar.setVisibility(VISIBLE);
+
+        // Set player header text
+        if (type.equalsIgnoreCase("tvshow")) {
+            playerHeaderTxt.setText(contentTitle + " - " + "S" + season + "E" + episode);
+        } else {
+            playerHeaderTxt.setText(contentTitle);
+        }
+
+        // Set up track selector
+        trackSelector = new DefaultTrackSelector(this);
+        DefaultTrackSelector.Parameters defaultTrackParam = trackSelector.buildUponParameters().build();
+        trackSelector.setParameters(defaultTrackParam);
+
+        // Set up media source factory
+        DataSource.Factory dataSourceFactory = headers();
+        MediaSource.Factory mediaSourceFactory = new DefaultMediaSourceFactory(dataSourceFactory)
+                .setAdsLoaderProvider(unusedAdTagUri -> adsLoader)
+                .setAdViewProvider(simpleExoPlayerView);
+
+        // Set up player
+        player = new ExoPlayer.Builder(this)
+                .setMediaSourceFactory(mediaSourceFactory)
+                .setTrackSelector(trackSelector)
+                .setSeekForwardIncrementMs(SEEK_INCREMENT_MS)
+                .setSeekBackIncrementMs(SEEK_INCREMENT_MS)
+                .build();
+
+        // Set player for ExoPlayerView and ads loader
+        simpleExoPlayerView.setPlayer(player);
+        adsLoader.setPlayer(player);
+
+        // Set resize mode and media source
+        simpleExoPlayerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        mediaSource = new ConcatenatingMediaSource();
+
+        // Set controller visibility listener
+        simpleExoPlayerView.setControllerVisibilityListener(visibility -> {
+            if (isLock()) {
+                simpleExoPlayerView.hideController();
+            } else if (visibility == 0) {
+                simpleExoPlayerView.showController();
+            } else {
+                simpleExoPlayerView.hideController();
+                hideSystemUI();
+            }
+        });
+    }
+
+    private static final int SEEK_INCREMENT_MS = 15000;
+
+    private String getMediaMimeType(Uri uri) {
+        try {
+            @C.ContentType int type = Util.inferContentType(uri);
+
+            switch (type) {
+                case C.CONTENT_TYPE_DASH:
+                case C.CONTENT_TYPE_HLS:
+                    return MimeTypes.APPLICATION_M3U8;
+                case C.CONTENT_TYPE_SS:
+                    return MimeTypes.APPLICATION_SS;
+                case C.CONTENT_TYPE_OTHER:
+                    return MimeTypes.BASE_TYPE_APPLICATION;
+                default:
+                    Log.e("PlayerErr", "Unsupported type: " + type);
+                    return null;
+            }
+        } catch (Exception e) {
+            Log.e("PlayerErr", "Error getting media mime type", e);
+            return null;
+        }
+    }
+
+    public DataSource.Factory headers() {
+        Map<String, String> headersMap = new HashMap<>();
+        headersMap.put("agent", getString(R.string.user_agent));
+        return new DefaultHttpDataSource.Factory().setDefaultRequestProperties(headersMap);
+    }
+
+    private final Player.Listener playerListener = new Player.Listener() {
+        @Override
+        public void onIsPlayingChanged(boolean isPlaying) {
+            simpleExoPlayerView.setKeepScreenOn(isPlaying);
+        }
+
+        @Override
+        public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
+
+            if (playWhenReady && playbackState == Player.STATE_READY) {
+                progressBar.setVisibility(GONE);
+                if (!type.equalsIgnoreCase("livetv")) {
+                    if (player != null) {
+                        updateContinueWatchingData(false);
+                    }
+                }
+
+            } else if (playbackState == Player.STATE_ENDED) {
+                releasePlayer();
+                finish();
+
+            } else if (playbackState == Player.STATE_IDLE) {
+                if (!type.equalsIgnoreCase("livetv")) {
+                    if (player != null) {
+                        updateContinueWatchingData(false);
+                    }
+                }
+
+            }
+        }
+
+        @Override
+        public void onTracksChanged(@NonNull Tracks tracks) {
+            updateButtonState(btnQuality, tracks.isTypeSelected(C.TRACK_TYPE_VIDEO));
+            updateButtonState(btnAudio, tracks.isTypeSelected(C.TRACK_TYPE_AUDIO));
+
+            if (tracks.isTypeSelected(C.TRACK_TYPE_TEXT)) {
+                btnSubs.setImageDrawable(getResources().getDrawable(R.drawable.closed_caption));
+            } else {
+                btnSubs.setImageDrawable(getResources().getDrawable(R.drawable.closed_caption_outline));
+            }
+        }
+
+        @Override
+        public void onPlayerError(@NonNull PlaybackException error) {
+            progressBar.setVisibility(VISIBLE);
+            extractVideo = false;
+
+            new AlertDialog.Builder(PlayerActivity.this, R.style.MyAlertDialogTheme)
+                    .setTitle("Por favor!")
+                    .setMessage("Para Reproducir este servidor de clic en REPRODUCIR")
+                    .setPositiveButton("Si,Reproducir", (dialog, which) -> {
+                        simpleExoPlayerView.setVisibility(GONE);
+                        webView_player.setVisibility(VISIBLE);
+                        initWebPlayer();
+                        releasePlayer();
+                    })
+                    .setNegativeButton(getResources().getString(R.string.exit_dialog_cancel), (dialog, which) -> dialog.cancel()).create().show();
+        }
+
+    };
+
+    private void updateButtonState(Button button, boolean isSelected) {
+        Drawable[] drawables = button.getCompoundDrawables();
+        if (isSelected) {
+            drawables[0].setColorFilter(getResources().getColor(R.color.white), PorterDuff.Mode.SRC_ATOP);
+            button.setTextColor(getResources().getColor(R.color.white));
+        } else {
+            drawables[0].setColorFilter(getResources().getColor(R.color.grey_60), PorterDuff.Mode.SRC_ATOP);
+            button.setTextColor(getResources().getColor(R.color.grey_60));
+        }
+    }
+
+    private void updateContinueWatchingData(Boolean isWebView) {
+
+        if (isWebView) {
+            ContinueWatching.addVideoData(this, id, season, episode, cType,
+                    null, null, mediaUrl, "webview");
+        } else
+            ContinueWatching.addVideoData(this, id, season, episode, cType,
+                    String.valueOf(player.getCurrentPosition()), String.valueOf(player.getDuration()), mediaUrl, "exoplayer");
+
+    }
+
+    private MediaSource buildMediaSource(ExoVideoSource sample) {
+        mediaUrl = sample.uri;
+        Uri uri = Uri.parse(sample.uri);
+        DataSource.Factory dataSourceFactory = new DefaultDataSourceFactory(this, getString(R.string.user_agent));
+        switch (sample.mimeType) {
+            case MimeTypes.APPLICATION_M3U8:
+                return new HlsMediaSource.Factory(dataSourceFactory)
+                        .createMediaSource(MediaItem.fromUri(uri));
+            case MimeTypes.APPLICATION_MPD:
+                return new DashMediaSource.Factory(
+                        new DefaultDashChunkSource.Factory(dataSourceFactory),
+                        new DefaultDataSourceFactory(PlayerActivity.this, null, dataSourceFactory))
+                        .createMediaSource(MediaItem.fromUri(uri));
+            case MimeTypes.APPLICATION_SS:
+                return new SsMediaSource.Factory(
+                        new DefaultSsChunkSource.Factory(dataSourceFactory),
+                        new DefaultDataSourceFactory(PlayerActivity.this, null, dataSourceFactory))
+                        .createMediaSource(MediaItem.fromUri(uri));
+            default:
+                return new ProgressiveMediaSource.Factory(dataSourceFactory)
+                        .createMediaSource(MediaItem.fromUri(uri));
+        }
+    }
+
+    private void updateLockMode(boolean isLock) {
+        if (player == null || simpleExoPlayerView == null)
+            return;
+
+        lockScreen(isLock);
+
+        if (isLock) {
+            disableBackPress = true;
+            simpleExoPlayerView.hideController();
+            unLock.setVisibility(View.VISIBLE);
+            return;
+        }
+
+        disableBackPress = false;
+        simpleExoPlayerView.showController();
+        unLock.setVisibility(GONE);
+
+    }
+
+    public void lockScreen(boolean isLock) {
+        this.isLock = isLock;
+    }
+
+    public boolean isLock() {
+        return isLock;
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        player.setPlayWhenReady(true);
+
+        if (requestCode == SUBTITLE_CHOOSE_INTENT) {
+            if (resultCode == RESULT_OK) {
+                if (data != null) {
+                    String pickedSub = data.getDataString();
+
+                    Uri uri = Uri.parse(pickedSub);
+                    // Convert subtitles to UTF-8 if necessary
+                    SubtitleUtils.clearCache(PlayerActivity.this);
+                    uri = SubtitleUtils.convertToUTF(PlayerActivity.this, uri);
+
+                    setSelectedSubtitle(mediaSource, String.valueOf(uri), MimeTypes.APPLICATION_SUBRIP, this, "Imported", "Imported");
+                    Toast.makeText(PlayerActivity.this, getResources().getString(R.string.subs_imported), Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(PlayerActivity.this, getResources().getString(R.string.subs_not_found), Toast.LENGTH_SHORT).show();
+                }
+            }
+        }
+    }
+
+    public void onOpenSubsLoad(String videoID) {
+        ApiInterface apiService = OpenSubsConnection.getOpenSubsServer().create(ApiInterface.class);
+        Call<List<Opensub>> mOpenSubsCall = apiService.getMovieSubsByImdb(videoID);
+        mOpenSubsCall.enqueue(new Callback<List<Opensub>>() {
+            @Override
+            public void onResponse(@NotNull Call<List<Opensub>> call, @NotNull Response<List<Opensub>> response) {
+                if (response.body() != null) {
+                    ArrayList<Opensub> subsInfo = filterSubtitles(response.body());
+                    showLanguageSelectionDialog(subsInfo);
+                } else {
+                    Toast.makeText(PlayerActivity.this, getResources().getString(R.string.open_subs_not_found), Toast.LENGTH_SHORT).show();
+                }
+            }
+
+            @Override
+            public void onFailure(@NotNull Call<List<Opensub>> call, @NotNull Throwable t) {
+                t.printStackTrace();
+            }
+        });
+    }
+
+    private ArrayList<Opensub> filterSubtitles(List<Opensub> subtitles) {
+        ArrayList<Opensub> subsInfo = new ArrayList<>();
+        for (Opensub opensub : subtitles) {
+            if (!subsInfo.contains(opensub) && isValidSubtitle(opensub)) {
+                subsInfo.add(opensub);
+            }
+        }
+        return subsInfo;
+    }
+
+    private boolean isValidSubtitle(Opensub opensub) {
+        return opensub.getZipDownloadLink() != null
+                && opensub.getSubFormat() != null
+                && !opensub.getSubFormat().isEmpty()
+                && (opensub.getSubFormat().equals("vtt") || opensub.getSubFormat().equals("srt") || opensub.getSubFormat().equals("ssa"))
+                && opensub.getSubHD() != null
+                && opensub.getSubHD().equals("1")
+                && opensub.getSubEncoding() != null;
+    }
+
+    private void showLanguageSelectionDialog(ArrayList<Opensub> subsInfo) {
+        ArrayList<String> languageList = getLanguageList(subsInfo);
+        AlertDialog.Builder languageBuilder = new AlertDialog.Builder(PlayerActivity.this, R.style.MyAlertDialogTheme);
+        languageBuilder.setTitle(getResources().getString(R.string.open_subtitles_language_dialog_title));
+        languageBuilder.setCancelable(true);
+        languageBuilder.setItems(languageList.toArray(new String[0]), (languageDialog, languageIndex) -> {
+            String selectedLanguage = languageList.get(languageIndex);
+            ArrayList<Opensub> filteredSubs = filterSubtitlesByLanguage(subsInfo, selectedLanguage);
+            showSubtitleSelectionDialog(filteredSubs);
+        });
+        languageBuilder.show();
+    }
+
+    private ArrayList<String> getLanguageList(ArrayList<Opensub> subsInfo) {
+        ArrayList<String> languageList = new ArrayList<>();
+        for (Opensub data : subsInfo) {
+            if (null != data.getLanguageName() && !data.getLanguageName().isEmpty() && !languageList.contains(data.getLanguageName())) {
+                languageList.add(data.getLanguageName());
+            }
+        }
+        // Sort the language list alphabetically
+        Collections.sort(languageList);
+        return languageList;
+    }
+
+    private ArrayList<Opensub> filterSubtitlesByLanguage(ArrayList<Opensub> subsInfo, String selectedLanguage) {
+        ArrayList<Opensub> filteredSubs = new ArrayList<>();
+        for (Opensub data : subsInfo) {
+            if (selectedLanguage.equals(data.getLanguageName())) {
+                filteredSubs.add(data);
+            }
+        }
+        return filteredSubs;
+    }
+
+    private void showSubtitleSelectionDialog(ArrayList<Opensub> filteredSubs) {
+        String[] charSequenceSubs = getCharSequenceSubs(filteredSubs);
+        AlertDialog.Builder builder = new AlertDialog.Builder(PlayerActivity.this, R.style.MyAlertDialogTheme);
+        builder.setTitle(getResources().getString(R.string.open_subtitles_dialog_title));
+        builder.setCancelable(true);
+        builder.setItems(charSequenceSubs, (dialogInterface, which) -> {
+            downloadAndSetSubtitle(filteredSubs.get(which));
+            dialogInterface.dismiss();
+        });
+        builder.show();
+    }
+
+    private String[] getCharSequenceSubs(ArrayList<Opensub> filteredSubs) {
+        String[] charSequenceSubs = new String[filteredSubs.size()];
+        for (int i = 0; i < filteredSubs.size(); i++) {
+            charSequenceSubs[i] = filteredSubs.get(i).getLanguageName() + " - " + filteredSubs.get(i).getSubFileName();
+        }
+        return charSequenceSubs;
+    }
+
+    private void downloadAndSetSubtitle(Opensub selectedSubtitle) {
+        String localZipPath = PlayerActivity.this.getExternalFilesDir(Environment.getDataDirectory().getAbsolutePath())
+                + SUBSTITLE_SUB_FILENAME_ZIP;
+
+        // Check if there is an existing subtitle file and delete it
+        File existingSubtitleZip = new File(localZipPath);
+        if (existingSubtitleZip.exists()) {
+            existingSubtitleZip.delete();
+        }
+
+        DownloadFileAsync download = new DownloadFileAsync(localZipPath, file -> {
+            String localSubtitlePath = extractSubtitleFile(file, selectedSubtitle);
+            if (localSubtitlePath != null) {
+                setSubtitle(localSubtitlePath, selectedSubtitle.getSubFormat(), selectedSubtitle.getLanguageName(), selectedSubtitle.getSubFileName());
+            } else {
+                Toast.makeText(PlayerActivity.this, getResources().getString(R.string.open_subs_srt_error), Toast.LENGTH_SHORT).show();
+            }
+
+        });
+        download.execute(selectedSubtitle.getZipDownloadLink());
+        Toast.makeText(PlayerActivity.this, "Adding " + selectedSubtitle.getLanguageName() + " Subtitle...", Toast.LENGTH_SHORT).show();
+    }
+
+
+    private String extractSubtitleFile(File zipFile, Opensub selectedSubtitle) {
+        try {
+            File localSubtitlePath = PlayerActivity.this.getExternalFilesDir(Environment.getDataDirectory().getAbsolutePath());
+            if (localSubtitlePath != null) {
+                new ZipFile(zipFile, null).extractFile(selectedSubtitle.getSubFileName(), localSubtitlePath.getAbsolutePath());
+                File extractedSubtitleFile = new File(localSubtitlePath, selectedSubtitle.getSubFileName());
+                return extractedSubtitleFile.getAbsolutePath();
+            } else {
+                return null;
+            }
+        } catch (net.lingala.zip4j.exception.ZipException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    private void setSubtitle(String localSubtitlePath, String subFormat, String language, String subtitleName) {
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+
+            SubtitleUtils.clearCache(PlayerActivity.this);
+
+            File localSubtitleFile = new File(localSubtitlePath);
+            File convertedSubtitleFile = new File(localSubtitleFile.getParent(), "utf8_" + localSubtitleFile.getName());
+
+            SubtitleUtils.convertSubtitleFileToUTF8(localSubtitleFile, convertedSubtitleFile);
+            Uri uri = Uri.fromFile(convertedSubtitleFile);
+
+            switch (subFormat) {
+                case "srt":
+                    setSelectedSubtitle(mediaSource, String.valueOf(uri), MimeTypes.APPLICATION_SUBRIP, PlayerActivity.this, language, subtitleName);
+                    break;
+                case "vtt":
+                    setSelectedSubtitle(mediaSource, String.valueOf(uri), MimeTypes.TEXT_VTT, PlayerActivity.this, language, subtitleName);
+                    break;
+                case "ssa":
+                    setSelectedSubtitle(mediaSource, String.valueOf(uri), MimeTypes.TEXT_SSA, PlayerActivity.this, language, subtitleName);
+                    break;
+            }
+        }, 1000);
+    }
+
+
+    public void setSelectedSubtitle(MediaSource mediaSource, String subtitle, String mimeTpe, Context context, String language, String subtitleName) {
+
+        MergingMediaSource mergedSource;
+        if (subtitle != null) {
+            Uri subtitleUri = Uri.parse(subtitle);
+
+            MediaItem.SubtitleConfiguration subtitleConfiguration =
+                    new MediaItem.SubtitleConfiguration.Builder(subtitleUri)
+                            .setMimeType(mimeTpe)
+                            .setLanguage(language)
+                            .setLabel(subtitleName)
+                            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                            .build();
+
+            DataSource.Factory dataSourceFactory = new DefaultDataSourceFactory(this, getString(R.string.user_agent));
+
+            MediaSource subtitleSource = new SingleSampleMediaSource
+                    .Factory(dataSourceFactory)
+                    .createMediaSource(subtitleConfiguration, C.TIME_UNSET);
+
+            mergedSource = new MergingMediaSource(mediaSource, subtitleSource);
+            player.prepare(mergedSource, false, false);
+            player.setPlayWhenReady(true);
+        } else {
+            Toast.makeText(context, getResources().getString(R.string.subs_format_error), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    public void setPlayerFullScreen() {
+
+        hideSystemUI();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            final WindowInsetsController insetsController = getWindow().getInsetsController();
+            if (insetsController != null) {
+                insetsController.hide(WindowInsets.Type.statusBars());
+                insetsController.hide(WindowInsets.Type.navigationBars());
+            }
+        } else {
+            getWindow().setFlags(
+                    WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                    WindowManager.LayoutParams.FLAG_FULLSCREEN
+            );
+        }
+
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+    }
+
+    public void hideSystemUI() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            final WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                controller.hide(WindowInsets.Type.statusBars());
+                controller.hide(WindowInsets.Type.navigationBars());
+                getWindow().setDecorFitsSystemWindows(false);
+            }
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LOW_PROFILE
+                            | View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (disableBackPress)
+            return;
+        releasePlayer();
+        if (!webKilled) {
+            if (webView != null) {
+                webView.destroy();
+                webView.destroyDrawingCache();
+                webView.clearCache(true);
+                webView.clearHistory();
+                webView.pauseTimers();
+                webView = null;
+            }
+        }
+        super.onBackPressed();
+
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        releasePlayer();
+        if (!webKilled) {
+            if (webView != null) {
+                destroyWebView();
+                webView.destroy();
+                webView.destroyDrawingCache();
+                webView.clearCache(true);
+                webView.clearHistory();
+                webView.removeAllViews();
+                webView.pauseTimers();
+                webView = null;
+            }
+        }
+
+    }
+
+    public void releasePlayer() {
+        if (player != null) {
+            player.stop();
+            player.release();
+            player.clearVideoSurface();
+            trackSelector = null;
+            mediaSource = null;
+            player.removeListener(playerListener);
+        }
+    }
+
+    public void destroyWebView() {
+        webView.loadUrl("about:blank");
+    }
+
+}
